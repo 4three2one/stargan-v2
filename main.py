@@ -116,7 +116,7 @@ if __name__ == '__main__':
                         help='Number of total iterations')
     parser.add_argument('--resume_iter', type=int, default=0,
                         help='Iterations to resume training/testing')
-    parser.add_argument('--batch_size', type=int, default=8,
+    parser.add_argument('--batch_size', type=int, default=1,
                         help='Batch size for training')
     parser.add_argument('--val_batch_size', type=int, default=32,
                         help='Batch size for validation')
@@ -130,7 +130,7 @@ if __name__ == '__main__':
                         help='Decay rate for 2nd moment of Adam')
     parser.add_argument('--weight_decay', type=float, default=1e-4,
                         help='Weight decay for optimizer')
-    parser.add_argument('--num_outs_per_domain', type=int, default=10,
+    parser.add_argument('--num_outs_per_domain', type=int, default=2,
                         help='Number of generated images per domain during sampling')
 
     # misc

@@ -100,8 +100,8 @@ def get_train_loader(root, which='source', img_size=256,
         transforms.Resize([img_size, img_size]),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5],
-                             std=[0.5, 0.5, 0.5]),
+        # transforms.Normalize(mean=[0.5, 0.5, 0.5],
+        #                      std=[0.5, 0.5, 0.5]),
     ])
 
     if which == 'source':
@@ -137,7 +137,7 @@ def get_eval_loader(root, img_size=256, batch_size=32,
         transforms.Resize([img_size, img_size]),
         transforms.Resize([height, width]),
         transforms.ToTensor(),
-        transforms.Normalize(mean=mean, std=std)
+        # transforms.Normalize(mean=mean, std=std)
     ])
 
     dataset = DefaultDataset(root, transform=transform)
@@ -155,8 +155,8 @@ def get_test_loader(root, img_size=256, batch_size=32,
     transform = transforms.Compose([
         transforms.Resize([img_size, img_size]),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5],
-                             std=[0.5, 0.5, 0.5]),
+        # transforms.Normalize(mean=[0.5, 0.5, 0.5],
+        #                      std=[0.5, 0.5, 0.5]),
     ])
 
     dataset = ImageFolder(root, transform)

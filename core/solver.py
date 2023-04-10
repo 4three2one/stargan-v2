@@ -23,7 +23,42 @@ from core.checkpoint import CheckpointIO
 from core.data_loader import InputFetcher
 import core.utils as utils
 from metrics.eval import calculate_metrics
+import numpy as np
+import matplotlib.pyplot as plt
+import torch
+import numpy as np
+from PIL import Image
+import torchvision.transforms as transforms
 
+#
+from segment_anything import SamPredictor, sam_model_registry
+
+device = "cuda"
+sam_checkpoint = "./seg/sam_vit_b_01ec64.pth"
+model_type = "vit_b"
+sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
+sam.to(device=device)
+predictor = SamPredictor(sam)
+input_point = np.array([[100, 100]])
+input_label = np.array([1])
+
+
+
+
+def get_making(img):
+    img_temp=img.detach()
+    img_temp=torch.clamp(torch.add(torch.mul(img_temp, 255), 0), min=0, max=255).squeeze().permute(1, 2, 0).to(
+        'cpu', torch.uint8).numpy()
+    # predictor,input_point,input_label=Solver.get_seg()
+    predictor.set_image(img_temp)
+    masks, scores, logits = predictor.predict(
+        point_coords=input_point,
+        point_labels=input_label,
+        multimask_output=True,
+    )
+    mask_fore = masks[0]+0
+    mask_back =1 -masks[0]
+    return img * torch.from_numpy(mask_fore).to(img.device).type(img.dtype), img * torch.from_numpy(mask_back).to(img.device).type(img.dtype)
 
 class Solver(nn.Module):
     def __init__(self, args):
@@ -102,7 +137,10 @@ class Solver(nn.Module):
             x_real, y_org = inputs.x_src, inputs.y_src
             x_ref, x_ref2, y_trg = inputs.x_ref, inputs.x_ref2, inputs.y_ref
             z_trg, z_trg2 = inputs.z_trg, inputs.z_trg2
-
+            
+            ##得到前景和背景
+            #back_x_real,fore_x_real=get_making(x_real)
+            
             masks = nets.fan.get_heatmap(x_real) if args.w_hpf > 0 else None
 
             # train the discriminator
@@ -120,7 +158,7 @@ class Solver(nn.Module):
 
             # train the generator
             g_loss, g_losses_latent = compute_g_loss(
-                nets, args, x_real, y_org, y_trg, z_trgs=[z_trg, z_trg2], masks=masks)
+                nets, args, x_real, y_org, y_trg, z_trgs=[z_trg, z_trg2], masks=masks,device=self.device)
             self._reset_grad()
             g_loss.backward()
             optims.generator.step()
@@ -128,7 +166,7 @@ class Solver(nn.Module):
             optims.style_encoder.step()
 
             g_loss, g_losses_ref = compute_g_loss(
-                nets, args, x_real, y_org, y_trg, x_refs=[x_ref, x_ref2], masks=masks)
+                nets, args, x_real, y_org, y_trg, x_refs=[x_ref, x_ref2], masks=masks,device=self.device)
             self._reset_grad()
             g_loss.backward()
             optims.generator.step()
@@ -198,13 +236,17 @@ class Solver(nn.Module):
         calculate_metrics(nets_ema, args, step=resume_iter, mode='reference')
 
 
-def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, masks=None):
+def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, masks=None,device="cuda"):
     assert (z_trg is None) != (x_ref is None)
+    ###############
+    x_real_fore,x_real_back=get_making(x_real)
     # with real images
     x_real.requires_grad_()
-    out = nets.discriminator(x_real, y_org)
+    x_real_fore.requires_grad_()
+    ####辨别图像是否 属于某个域 -->相当于leafgan中的辨别器损失  确定使用前景
+    out = nets.discriminator(x_real_fore, y_org)
     loss_real = adv_loss(out, 1)
-    loss_reg = r1_reg(out, x_real)
+    loss_reg = r1_reg(out, x_real_fore)
 
     # with fake images
     with torch.no_grad():
@@ -212,18 +254,23 @@ def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, mas
             s_trg = nets.mapping_network(z_trg, y_trg)
         else:  # x_ref is not None
             s_trg = nets.style_encoder(x_ref, y_trg)
-
+        #生成时候传入整个图片 计算损失时候特殊处理
         x_fake = nets.generator(x_real, s_trg, masks=masks)
-    out = nets.discriminator(x_fake, y_trg)
+        x_fake_fore,x_fake_back=get_making(x_fake)
+    ####辨别图像是否 属于某个域 -->相当于leafgan中的辨别器损失  确定使用前景
+    out = nets.discriminator(x_fake_fore, y_trg)
     loss_fake = adv_loss(out, 0)
 
-    loss = loss_real + loss_fake + args.lambda_reg * loss_reg
+    #计算背景损失
+    target_area_loss=back_ground_loss(x_real_back,x_fake_back)
+
+    loss = loss_real + loss_fake + args.lambda_reg * loss_reg+target_area_loss
     return loss, Munch(real=loss_real.item(),
                        fake=loss_fake.item(),
                        reg=loss_reg.item())
 
 
-def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=None, masks=None):
+def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=None, masks=None,device="cuda"):
     assert (z_trgs is None) != (x_refs is None)
     if z_trgs is not None:
         z_trg, z_trg2 = z_trgs
@@ -235,9 +282,15 @@ def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=None, m
         s_trg = nets.mapping_network(z_trg, y_trg)
     else:
         s_trg = nets.style_encoder(x_ref, y_trg)
+    ###
+    x_real_fore, x_real_back = get_making(x_real)
 
+    # 生成时候传入整个图片 计算损失时候特殊处理
     x_fake = nets.generator(x_real, s_trg, masks=masks)
-    out = nets.discriminator(x_fake, y_trg)
+    #前景和背景
+    x_fake_fore, x_fake_back = get_making(x_fake)
+
+    out = nets.discriminator(x_fake_fore, y_trg)
     loss_adv = adv_loss(out, 1)
 
     # style reconstruction loss
@@ -250,8 +303,13 @@ def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=None, m
     else:
         s_trg2 = nets.style_encoder(x_ref2, y_trg)
     x_fake2 = nets.generator(x_real, s_trg2, masks=masks)
+    ###
+    x_fake2_fore, x_fake2_back = get_making(x_fake2)
     x_fake2 = x_fake2.detach()
     loss_ds = torch.mean(torch.abs(x_fake - x_fake2))
+    ####
+    target_area_loss_1 = back_ground_loss(x_real_back, x_fake_back)
+    target_area_loss_2 = back_ground_loss(x_real_back, x_fake2_back)
 
     # cycle-consistency loss
     masks = nets.fan.get_heatmap(x_fake) if args.w_hpf > 0 else None
@@ -260,7 +318,8 @@ def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=None, m
     loss_cyc = torch.mean(torch.abs(x_rec - x_real))
 
     loss = loss_adv + args.lambda_sty * loss_sty \
-        - args.lambda_ds * loss_ds + args.lambda_cyc * loss_cyc
+        - args.lambda_ds * loss_ds + args.lambda_cyc * loss_cyc \
+        +target_area_loss_1  +  target_area_loss_2
     return loss, Munch(adv=loss_adv.item(),
                        sty=loss_sty.item(),
                        ds=loss_ds.item(),
@@ -278,6 +337,9 @@ def adv_loss(logits, target):
     loss = F.binary_cross_entropy_with_logits(logits, targets)
     return loss
 
+def back_ground_loss(img1,img2):
+   criterionBackground = torch.nn.L1Loss()
+   return criterionBackground(img1,img2)
 
 def r1_reg(d_out, x_in):
     # zero-centered gradient penalty for real images
