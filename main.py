@@ -18,7 +18,7 @@ import torch
 from core.data_loader import get_train_loader
 from core.data_loader import get_test_loader
 from core.solver import Solver
-
+import time
 
 def str2bool(v):
     return v.lower() in ('true')
@@ -81,6 +81,7 @@ def main(args):
 
 
 if __name__ == '__main__':
+    now=time.strftime(("%m-%d-%H-%M"), time.localtime())
     parser = argparse.ArgumentParser()
 
     # model arguments
@@ -116,9 +117,9 @@ if __name__ == '__main__':
                         help='Number of total iterations')
     parser.add_argument('--resume_iter', type=int, default=0,
                         help='Iterations to resume training/testing')
-    parser.add_argument('--batch_size', type=int, default=8,
+    parser.add_argument('--batch_size', type=int, default=1,
                         help='Batch size for training')
-    parser.add_argument('--val_batch_size', type=int, default=32,
+    parser.add_argument('--val_batch_size', type=int, default=8,
                         help='Batch size for validation')
     parser.add_argument('--lr', type=float, default=1e-4,
                         help='Learning rate for D, E and G')
@@ -147,17 +148,17 @@ if __name__ == '__main__':
                         help='Directory containing training images')
     parser.add_argument('--val_img_dir', type=str, default='data/celeba_hq/val',
                         help='Directory containing validation images')
-    parser.add_argument('--sample_dir', type=str, default='expr/samples',
+    parser.add_argument('--sample_dir', type=str, default=f'expr/samples/{now}',
                         help='Directory for saving generated images')
-    parser.add_argument('--checkpoint_dir', type=str, default='expr/checkpoints',
+    parser.add_argument('--checkpoint_dir', type=str, default=f'expr/checkpoints/{now}',
                         help='Directory for saving network checkpoints')
 
     # directory for calculating metrics
-    parser.add_argument('--eval_dir', type=str, default='expr/eval',
+    parser.add_argument('--eval_dir', type=str, default=f'expr/eval/{now}',
                         help='Directory for saving metrics, i.e., FID and LPIPS')
 
     # directory for testing
-    parser.add_argument('--result_dir', type=str, default='expr/results',
+    parser.add_argument('--result_dir', type=str, default=f'expr/results/{now}',
                         help='Directory for saving generated images and videos')
     parser.add_argument('--src_dir', type=str, default='assets/representative/celeba_hq/src',
                         help='Directory containing input source images')
@@ -169,8 +170,8 @@ if __name__ == '__main__':
                         help='output directory when aligning faces')
 
     # face alignment
-    parser.add_argument('--wing_path', type=str, default='expr/checkpoints/wing.ckpt')
-    parser.add_argument('--lm_path', type=str, default='expr/checkpoints/celeba_lm_mean.npz')
+    parser.add_argument('--wing_path', type=str, default=f'expr/checkpoints/{now}/wing.ckpt')
+    parser.add_argument('--lm_path', type=str, default=f'expr/checkpoints/{now}/celeba_lm_mean.npz')
 
     # step size
     parser.add_argument('--print_every', type=int, default=10)
